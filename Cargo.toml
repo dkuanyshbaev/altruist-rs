@@ -4,16 +4,21 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-embassy-executor = { version = "0.6.0", features = ["nightly", "integrated-timers", "task-arena-size-32768"] }
-embassy-time = { version = "0.3.2" }
-esp-hal = { version = "0.20.1", features = ["esp32c6"] }
-esp-hal-embassy = { version = "0.3.0", features = ["esp32c6", "integrated-timers"] }
-esp-println = { version = "0.12.0", features = ["esp32c6"] }
+esp-hal = { version = "0.21.1", features = ["esp32c6"] }
+esp-hal-embassy = { version = "0.4.0", features = ["esp32c6"] }
+esp-println = { version = "0.12.0", features = ["esp32c6", "log"] }
 esp-backtrace = { version = "0.14.2", features = ["esp32c6", "panic-handler", "exception-handler", "println"] }
+embassy-executor = { version = "0.6.2", features = ["task-arena-size-32768", "integrated-timers"] }
+embassy-time = { version = "0.3.2" }
+embassy-sync = { version = "0.6.0" }
+static_cell = { version = "2.1.1" }
+log = { version = "0.4.22" }
 
 [profile.release]
 opt-level = "s"
 debug = true
+lto = "off"
 
 [profile.dev]
 opt-level = "z"
+lto = "off"
