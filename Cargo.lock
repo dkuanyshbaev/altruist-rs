@@ -7,14 +7,12 @@ name = "altruist-rs"
 version = "0.1.0"
 dependencies = [
  "embassy-executor",
- "embassy-sync",
  "embassy-time",
  "esp-backtrace",
  "esp-hal",
  "esp-hal-embassy",
  "esp-println",
  "log",
- "static_cell",
 ]
 
 [[package]]
@@ -187,8 +185,6 @@ dependencies = [
  "critical-section",
  "document-features",
  "embassy-executor-macros",
- "embassy-time-driver",
- "embassy-time-queue-driver",
 ]
 
 [[package]]

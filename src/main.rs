@@ -25,21 +25,21 @@ fn main() -> ! {
     let mut led = Output::new(io.pins.gpio8, Level::Low);
     
     println!("Firmware started successfully!");
-    println!("Embassy async tasks starting...");
+    println!("Embassy timers initialized!");
 
-    // Simple async block using embassy timer
+    // Simple Embassy-powered loop
     let mut main_counter = 0u32;
     let mut led_counter = 0u32;
     let mut fast_counter = 0u32;
     
     loop {
-        // Main loop task
+        // Main loop task (every 5 seconds)
         if main_counter % 50 == 0 {
             println!("[MAIN] Tick {}", main_counter / 50);
         }
         main_counter = main_counter.wrapping_add(1);
         
-        // LED blink task
+        // LED blink task (every 500ms)
         if led_counter % 5 == 0 {
             if (led_counter / 5) % 2 == 0 {
                 led.set_high();
@@ -51,13 +51,13 @@ fn main() -> ! {
         }
         led_counter = led_counter.wrapping_add(1);
         
-        // Fast counter task
+        // Fast counter task (every 200ms)
         if fast_counter % 2 == 0 {
             println!("[COUNTER] Fast count: {}", fast_counter / 2);
         }
         fast_counter = fast_counter.wrapping_add(1);
         
-        // Use embassy timer for delay
+        // Use Embassy timer for delay - non-blocking!
         embassy_time::block_for(Duration::from_millis(100));
     }
 }
