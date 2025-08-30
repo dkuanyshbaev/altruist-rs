@@ -1,0 +1,8 @@
+#!/bin/bash
+# Monitor ESP32C6 serial output
+
+echo "Monitoring ESP32C6 logs on /dev/ttyACM0..."
+echo "Press Ctrl+C to stop monitoring"
+echo "----------------------------------------"
+
+tail -f /dev/ttyACM0

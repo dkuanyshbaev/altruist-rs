@@ -2,14 +2,32 @@
 
 A Rust implementation of altruist.
 
-## Installation
+## Prerequisites
 
-TODO
+```bash
+# Install RISC-V target for ESP32-C6
+rustup target add riscv32imac-unknown-none-elf
 
-## Usage
+# Install flashing tools
+cargo install espflash cargo-espflash
+```
 
-TODO
+## Building
+
+```bash
+cargo build
+```
+
+## Flashing
+
+1. Connect your ESP32-C6 device
+2. Run the flash script:
+```bash
+./flash.sh
+```
+
+This will flash the firmware and start monitoring serial output.
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+MIT.
