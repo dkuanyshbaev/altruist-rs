@@ -7,4 +7,5 @@ echo "Press Ctrl+C to stop monitoring"
 echo "----------------------------------------"
 
 # Configure serial port properly and start monitoring
-stty -F /dev/ttyACM0 115200 raw -echo && cat /dev/ttyACM0
+#stty -F /dev/ttyACM0 115200 raw -echo && cat /dev/ttyACM0
+cat /dev/ttyACM0
