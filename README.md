@@ -19,8 +19,8 @@ A minimal Embassy-based async application for ESP32-C6 using pure Rust (no ESP-I
 sudo apt update
 sudo apt install -y build-essential pkg-config libudev-dev libusb-1.0-0-dev cmake git
 
-# For probe-rs (recommended flashing tool)
-sudo apt install -y libftdi1-dev libhidapi-dev
+# For probe-rs (REQUIRED for USB access and JTAG support)
+sudo apt install -y libftdi1-dev libhidapi-dev libusb-1.0-0-dev
 ```
 
 ### Rust Toolchain
@@ -43,47 +43,62 @@ git clone <repository-url>
 cd altruist-rs
 ```
 
-### Choose Flashing Method
+### Critical Setup Steps (Required!)
 
-#### Option 1: probe-rs (Recommended for ESP32-C6)
-
-probe-rs is the modern standard for embedded Rust development and works excellently with ESP32-C6 (RISC-V based).
+#### 1. Update Rust Toolchain
 
 ```bash
-# Install probe-rs tools (latest version with ESP32-C6 fixes)
-cargo install probe-rs-tools --locked
+# REQUIRED: Update to latest nightly (probe-rs needs recent toolchain)
+rustup update nightly
+rustup default nightly
 
-# Add shell completion (optional)
-probe-rs complete install
+# Add RISC-V target for ESP32-C6
+rustup target add riscv32imac-unknown-none-elf
+```
+
+#### 2. Install probe-rs Dependencies & Tools
+
+```bash
+# Install system dependencies for probe-rs
+sudo apt install -y libftdi1-dev libhidapi-dev libusb-1.0-0-dev
+
+# Install probe-rs tools (do NOT use --locked flag)
+cargo install probe-rs-tools
+
+# Verify installation
+probe-rs --version  # Should show v0.29.1+
 
 # Verify ESP32-C6 support
 probe-rs chip list | grep -i esp32c6
-
-# Check probe-rs can detect your device
-probe-rs list
 ```
 
-**Why probe-rs for ESP32-C6?**
-- ✅ Native RISC-V support (ESP32-C6 is RISC-V based)
-- ✅ Works with bare metal applications (no ESP-IDF dependency)
-- ✅ Built-in USB-JTAG support for ESP32-C6 DevKit
-- ✅ Fast flashing and debugging
-- ✅ Active development with ESP32-C6 specific fixes in v0.29.1+
+#### 3. Fix USB Permissions (Critical!)
 
-#### Option 2: espflash (Fallback - Has Limitations)
+Create udev rules for ESP32-C6 access:
 
 ```bash
-# WARNING: espflash 4.0+ has issues with bare metal applications
-# Only works with ESP-IDF format applications, not pure esp-hal
+# Create udev rules file
+sudo tee /etc/udev/rules.d/99-esp32.rules << 'EOF'
+# ESP32-C6 USB JTAG/Serial Debug Unit
+SUBSYSTEM=="usb", ATTR{idVendor}=="303a", ATTR{idProduct}=="1001", MODE="0666"
+# General ESP32 devices  
+SUBSYSTEM=="usb", ATTR{idVendor}=="303a", MODE="0666"
+EOF
 
-# If you have compatible toolchain, try older version:
-cargo install espflash@3.3.0  # May not work with newer Rust
+# Apply rules
+sudo udevadm control --reload-rules
+sudo udevadm trigger
+
+# IMPORTANT: Unplug and replug your ESP32-C6 board after this!
 ```
 
-**Known Issues with espflash:**
-- ❌ espflash 4.0+ requires ESP-IDF app descriptor
-- ❌ Does not support bare metal esp-hal applications  
-- ❌ Will show "ESP-IDF App Descriptor missing" error
+#### 4. Verify Setup
+
+```bash
+# Check if probe detects your board
+probe-rs list
+# Should show: ESP JTAG -- 303a:1001:... (EspJtag)
+```
 
 ### Hardware Setup
 
@@ -107,28 +122,45 @@ ls -la target/riscv32imac-unknown-none-elf/release/altruist-rs
 
 ## 📡 Flashing and Running
 
-### Using probe-rs (Recommended)
+### ✅ Working Method: probe-rs
+
+Once setup is complete, flashing is simple:
 
 ```bash
-# Method 1: Use cargo run with probe-rs runner (configured in .cargo/config.toml)
+# Build and flash in one command (configured in .cargo/config.toml)
 cargo run --release
-
-# Method 2: Direct probe-rs command
-probe-rs run --chip esp32c6 target/riscv32imac-unknown-none-elf/release/altruist-rs
-
-# Method 3: Flash and attach separately
-probe-rs download --chip esp32c6 target/riscv32imac-unknown-none-elf/release/altruist-rs
-probe-rs attach --chip esp32c6
 ```
 
-### Using espflash (If Available)
+This will:
+1. **Build** the Embassy firmware 
+2. **Erase** flash automatically
+3. **Flash** the binary via USB-JTAG
+4. **Start** the application
+
+### 📺 Monitor Serial Output
+
+After flashing, monitor your running Embassy application:
 
 ```bash
-# Only works with older espflash versions
-cargo run --release  # If espflash runner configured
+# Continuous real-time logs (press Ctrl+C to stop)
+cat /dev/ttyACM0
 
-# Or directly
-espflash flash --monitor target/riscv32imac-unknown-none-elf/release/altruist-rs
+# Or with timeout
+timeout 10s cat /dev/ttyACM0
+```
+
+Expected output:
+```
+ESP32-C6: Embassy Hello World!
+Firmware started successfully!
+Embassy timers initialized!
+[MAIN] Tick 0
+[LED] On
+[COUNTER] Fast count: 0
+[COUNTER] Fast count: 1
+[LED] Off
+[COUNTER] Fast count: 2
+[MAIN] Tick 1
 ```
 
 ## ⚙️ Configuration Files
@@ -199,7 +231,7 @@ Embassy timers initialized!
 
 ## 🛠️ Troubleshooting
 
-### probe-rs Issues
+### Common Issues & Solutions
 
 #### Problem: `probe-rs` not found after installation
 
@@ -212,40 +244,36 @@ echo 'export PATH="$HOME/.cargo/bin:$PATH"' >> ~/.bashrc
 probe-rs --version
 ```
 
-#### Problem: Permission denied accessing device
+#### Problem: `Error: Probe not found`
 
+**Root Cause**: USB permissions not set correctly.
+
+**Solution**: Follow the USB permissions setup in installation section:
 ```bash
-# Fix USB device permissions
-sudo chmod 666 /dev/ttyACM0
-
-# Or add user to dialout group (permanent)
-sudo usermod -a -G dialout $USER
-# Log out and back in for group change to take effect
+sudo tee /etc/udev/rules.d/99-esp32.rules << 'EOF'
+SUBSYSTEM=="usb", ATTR{idVendor}=="303a", ATTR{idProduct}=="1001", MODE="0666"
+EOF
+sudo udevadm control --reload-rules
+sudo udevadm trigger
+# UNPLUG and REPLUG your ESP32-C6 board!
 ```
 
-#### Problem: Device not detected
+#### Problem: `feature 'edition2024' is required`
 
+**Root Cause**: Rust toolchain too old for probe-rs.
+
+**Solution**: Update Rust toolchain:
 ```bash
-# List available probes
-probe-rs list
-
-# Check if ESP32-C6 is supported
-probe-rs chip list | grep -i esp32c6
-
-# Put device in download mode manually:
-# Hold BOOT button while pressing RESET button
+rustup update nightly
+rustup default nightly
 ```
 
-### espflash Issues
+#### Problem: Custom board without BOOT button
 
-#### Problem: `ESP-IDF App Descriptor missing` error
-
-**Root Cause**: espflash 4.0+ only supports ESP-IDF applications, not bare metal esp-hal.
-
-**Solutions**:
-1. **Switch to probe-rs** (recommended)
-2. **Use older espflash** (if toolchain compatible)
-3. **Add ESP-IDF compatibility layer** (complex)
+**Solution**: probe-rs works with custom boards! No BOOT button needed.
+- ESP32-C6 has built-in USB-JTAG that probe-rs uses directly
+- No need to manually enter download mode
+- Just ensure USB permissions are set correctly
 
 ### Build Issues
 
@@ -324,23 +352,25 @@ The application demonstrates:
 4. **Monitor**: Serial output appears automatically
 5. **Debug**: Use `probe-rs attach` for advanced debugging
 
-## 🚧 Known Issues & Solutions
+## ✅ Success! Working Configuration
 
-### Flashing Tool Compatibility
+### Verified Setup
 
-| Tool | Version | ESP32-C6 | Bare Metal | Status |
-|------|---------|-----------|------------|--------|
-| probe-rs | 0.29.1+ | ✅ | ✅ | **Recommended** |
-| espflash | 4.0+ | ❌ | ❌ | Requires ESP-IDF |
-| espflash | 2.x-3.x | ✅ | ✅ | Works if installable |
-| esptool.py | Any | ⚠️ | ⚠️ | Manual conversion needed |
+| Component | Version | Status |
+|-----------|---------|--------|
+| **Rust** | nightly-2025-08-29+ | ✅ Working |
+| **probe-rs** | v0.29.1+ | ✅ Working |
+| **Embassy** | 0.6.2+ | ✅ Working |
+| **esp-hal** | 0.21.1 | ✅ Working |
+| **ESP32-C6** | Custom board | ✅ Working |
 
-### ESP32-C6 Specific Notes
+### Why This Setup Works
 
-- **RISC-V Architecture**: Well supported by probe-rs
-- **Built-in USB-JTAG**: No external programmer needed
-- **Memory Layout**: Current linker script works correctly
-- **Embassy Support**: Fully functional with esp-hal 0.21.1+
+- **✅ probe-rs**: Native RISC-V support for ESP32-C6
+- **✅ Built-in USB-JTAG**: No external programmer needed
+- **✅ Pure Rust**: No ESP-IDF, bootloaders, or partition tables
+- **✅ Embassy async**: Modern embedded Rust framework
+- **✅ Custom boards**: Works without BOOT buttons
 
 ## 📈 Next Steps
 
