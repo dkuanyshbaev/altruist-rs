@@ -34,20 +34,10 @@ impl Sds011Sensor {
 impl Sds011Sensor {
     /// Send raw command to SDS011
     async fn send_command(&mut self, cmd: &[u8]) -> Result<(), SensorError> {
-        esp_println::println!("[SDS011] Sending command: {:02X?}", cmd);
         match with_timeout(Duration::from_millis(500), self.uart.write_all(cmd)).await {
-            Ok(Ok(())) => {
-                esp_println::println!("[SDS011] Command sent successfully");
-                Ok(())
-            },
-            Ok(Err(_)) => {
-                esp_println::println!("[SDS011] Command send failed");
-                Err(SensorError::CommunicationError)
-            },
-            Err(_) => {
-                esp_println::println!("[SDS011] Command send timeout");
-                Err(SensorError::Timeout)
-            },
+            Ok(Ok(())) => Ok(()),
+            Ok(Err(_)) => Err(SensorError::CommunicationError),
+            Err(_) => Err(SensorError::Timeout),
         }
     }
 
@@ -125,8 +115,6 @@ impl Sds011Sensor {
                         }
                         
                         if data_pos == 8 {
-                            esp_println::println!("[SDS011] Got full packet: {:02X?}", data);
-                            
                             if self.checksum_valid(&data) {
                                 let pm25_raw = (data[0] as u16) | ((data[1] as u16) << 8);
                                 let pm10_raw = (data[2] as u16) | ((data[3] as u16) << 8);
@@ -134,10 +122,7 @@ impl Sds011Sensor {
                                 let pm25 = pm25_raw as f32 / 10.0;
                                 let pm10 = pm10_raw as f32 / 10.0;
                                 
-                                esp_println::println!("[SDS011] Valid measurement: PM2.5={} µg/m³, PM10={} µg/m³", pm25, pm10);
                                 return Ok((pm25, pm10));
-                            } else {
-                                esp_println::println!("[SDS011] Checksum failed");
                             }
                         }
                     }
@@ -155,7 +140,6 @@ impl Sds011Sensor {
             }
         }
         
-        esp_println::println!("[SDS011] No valid data received within timeout");
         Err(SensorError::Timeout)
     }
 }
@@ -187,7 +171,6 @@ impl Sensor for Sds011Sensor {
             if let Some(last_error) = self.last_error_time {
                 let elapsed = last_error.elapsed();
                 if elapsed < Duration::from_secs(60) {
-                    esp_println::println!("[SDS011] Too many errors, backing off");
                     return Err(SensorError::Timeout);
                 } else {
                     // Reset error count after backoff period
@@ -202,14 +185,12 @@ impl Sensor for Sds011Sensor {
             match self.cmd_start().await {
                 Ok(_) => {
                     self.is_running = true;
-                    esp_println::println!("[SDS011] Sensor started, waiting for warm-up...");
                     // SDS011 needs time to start sending data after being turned on
                     Timer::after(Duration::from_secs(3)).await;
                 }
                 Err(e) => {
                     self.error_count += 1;
                     self.last_error_time = Some(embassy_time::Instant::now());
-                    esp_println::println!("[SDS011] Failed to start sensor");
                     return Err(e);
                 }
             }
@@ -227,7 +208,6 @@ impl Sensor for Sds011Sensor {
                     };
                     return Ok(SensorReading::new(SensorType::SDS011, data, Quality::Good));
                 } else {
-                    esp_println::println!("[SDS011] Data out of range: PM2.5={}, PM10={}", pm25, pm10);
                     self.error_count += 1;
                     self.last_error_time = Some(embassy_time::Instant::now());
                     Err(SensorError::InvalidData)
@@ -236,7 +216,6 @@ impl Sensor for Sds011Sensor {
             Err(e) => {
                 self.error_count += 1;
                 self.last_error_time = Some(embassy_time::Instant::now());
-                esp_println::println!("[SDS011] Read error ({}): {:?}", self.error_count, e);
                 Err(e)
             }
         }
