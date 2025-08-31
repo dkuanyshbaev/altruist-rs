@@ -9,12 +9,13 @@ path = "src/main.rs"
 
 [dependencies]
 esp-hal = { version = "0.21.1", features = ["esp32c6"] }
-esp-hal-embassy = { version = "0.4.0", features = ["esp32c6"] }
+esp-hal-embassy = { version = "0.4.0", features = ["esp32c6", "integrated-timers"] }
 esp-println = { version = "0.12.0", features = ["esp32c6", "log"] }
 esp-backtrace = { version = "0.14.2", features = ["esp32c6", "panic-handler", "exception-handler", "println"] }
 embassy-executor = { version = "0.6.2", features = ["task-arena-size-20480"] }
 embassy-time = { version = "0.3.2" }
 log = { version = "0.4.22" }
+static_cell = { version = "2.1.0" }
 
 [profile.release]
 codegen-units = 1

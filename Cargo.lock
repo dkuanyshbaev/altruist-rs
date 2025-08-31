@@ -13,6 +13,7 @@ dependencies = [
  "esp-hal-embassy",
  "esp-println",
  "log",
+ "static_cell",
 ]
 
 [[package]]
@@ -185,6 +186,8 @@ dependencies = [
  "critical-section",
  "document-features",
  "embassy-executor-macros",
+ "embassy-time-driver",
+ "embassy-time-queue-driver",
 ]
 
 [[package]]
