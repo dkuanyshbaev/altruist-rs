@@ -7,8 +7,10 @@
 #![feature(type_alias_impl_trait)]
 
 use esp_backtrace as _;
+use esp_hal::prelude::*;
 use esp_hal::timer::timg::TimerGroup;
 use esp_hal::uart::Uart;
+use esp_hal::i2c::I2c;
 use esp_hal::gpio::Io;
 use esp_println::println;
 use static_cell::StaticCell;
@@ -67,6 +69,14 @@ fn main() -> ! {
         io.pins.gpio4,   // TX
     ).expect("Failed to create async UART0 with config");
 
+    // I2C0 for BME280 sensor (pins SDA=3, SCL=2, 100kHz) - Urban variant
+    let i2c0 = I2c::new_async(
+        peripherals.I2C0,
+        io.pins.gpio3,   // SDA - Urban variant
+        io.pins.gpio2,   // SCL - Urban variant  
+        100_000u32.Hz(), // 100kHz
+    );
+
     // Run the executor with our sensor tasks
     executor.run(|spawner| {
         println!("Spawning sensor aggregator task...");
@@ -82,8 +92,8 @@ fn main() -> ! {
         let sds_sensor = Sds011Sensor::new(uart0);
         spawner.must_spawn(sds011_sensor_task(sds_sensor));
 
-        // Spawn BME280 sensor task
-        let bme_sensor = Bme280Sensor::new();
+        // Spawn BME280 sensor task with I2C
+        let bme_sensor = Bme280Sensor::new(i2c0);
         spawner.must_spawn(bme280_sensor_task(bme_sensor));
 
         println!("All sensor tasks started!");
