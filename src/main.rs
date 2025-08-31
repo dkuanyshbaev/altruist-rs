@@ -1,40 +1,32 @@
 //! Altruist - ESP32-C6 firmware
 //!
-//! Smart home system with async task management using Embassy framework.
+//! Smart home system with extensible sensor framework using Embassy async.
 
 #![no_std]
 #![no_main]
 #![feature(type_alias_impl_trait)]
 
-use embassy_time::{Duration, Timer};
 use esp_backtrace as _;
 use esp_hal::timer::timg::TimerGroup;
 use esp_println::println;
 use static_cell::StaticCell;
 
-#[embassy_executor::task]
-async fn me2_co_task() {
-    let mut counter = 0u32;
-    loop {
-        println!("[ME2-CO]: {}", counter);
-        counter = counter.wrapping_add(1);
-        Timer::after(Duration::from_secs(2)).await;
-    }
-}
-
-#[embassy_executor::task]
-async fn sds_task() {
-    let mut counter = 0u32;
-    loop {
-        println!("[SDS]: {}", counter);
-        counter = counter.wrapping_add(1);
-        Timer::after(Duration::from_secs(3)).await;
-    }
-}
+// Import our sensor abstraction
+mod sensors;
+use sensors::{
+    bme280::Bme280Sensor,
+    manager::{
+        bme280_sensor_task, me2co_sensor_task, sds011_sensor_task, sensor_aggregator_task,
+        SensorManager,
+    },
+    me2co::Me2CoSensorWrapper,
+    sds011::Sds011Sensor,
+};
 
 #[esp_hal::entry]
 fn main() -> ! {
     println!("Altruist");
+    println!("==============================================");
 
     // Initialize system and take peripherals
     let peripherals = esp_hal::init(esp_hal::Config::default());
@@ -43,20 +35,36 @@ fn main() -> ! {
     let timg0 = TimerGroup::new(peripherals.TIMG0);
     esp_hal_embassy::init(timg0.timer0);
 
-    // Static storage for the executor
+    // Static storage for the executor and sensor manager
     static EXECUTOR: StaticCell<esp_hal_embassy::Executor> = StaticCell::new();
+    static SENSOR_MANAGER: StaticCell<SensorManager> = StaticCell::new();
+
     let executor = EXECUTOR.init(esp_hal_embassy::Executor::new());
+    let sensor_manager = SENSOR_MANAGER.init(SensorManager::new());
 
-    println!("Starting async tasks...");
+    println!("Initializing sensor framework...");
 
-    // Run the executor with spawned tasks
+    // Run the executor with our sensor tasks
     executor.run(|spawner| {
+        println!("Spawning sensor aggregator task...");
+        spawner.must_spawn(sensor_aggregator_task());
+
+        println!("Spawning sensor tasks...");
+
         // Spawn ME2-CO sensor task
-        spawner.must_spawn(me2_co_task());
+        let me2co_sensor = Me2CoSensorWrapper::new();
+        spawner.must_spawn(me2co_sensor_task(me2co_sensor));
 
-        // Spawn SDS sensor task
-        spawner.must_spawn(sds_task());
+        // Spawn SDS011 sensor task
+        let sds_sensor = Sds011Sensor::new();
+        spawner.must_spawn(sds011_sensor_task(sds_sensor));
 
-        println!("All tasks started!");
+        // Spawn BME280 sensor task
+        let bme_sensor = Bme280Sensor::new();
+        spawner.must_spawn(bme280_sensor_task(bme_sensor));
+
+        println!("All sensor tasks started!");
+        println!("Monitor sensor readings below:");
+        println!("------------------------------");
     })
 }
