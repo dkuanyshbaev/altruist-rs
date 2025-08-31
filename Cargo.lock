@@ -9,6 +9,7 @@ dependencies = [
  "embassy-executor",
  "embassy-sync",
  "embassy-time",
+ "embedded-io-async",
  "esp-backtrace",
  "esp-hal",
  "esp-hal-embassy",

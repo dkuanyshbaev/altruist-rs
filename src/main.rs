@@ -8,6 +8,8 @@
 
 use esp_backtrace as _;
 use esp_hal::timer::timg::TimerGroup;
+use esp_hal::uart::Uart;
+use esp_hal::gpio::Io;
 use esp_println::println;
 use static_cell::StaticCell;
 
@@ -43,6 +45,17 @@ fn main() -> ! {
     let sensor_manager = SENSOR_MANAGER.init(SensorManager::new());
 
     println!("Initializing sensor framework...");
+    
+    // Configure async UART for ME2-CO sensor (pins RX=19, TX=18, 9600 baud)
+    // Original firmware uses SoftwareSerial - let's configure hardware UART with explicit settings
+    let io = Io::new(peripherals.GPIO, peripherals.IO_MUX);
+    let uart1 = Uart::new_async_with_config(
+        peripherals.UART1,
+        esp_hal::uart::config::Config::default()
+            .baudrate(9600),
+        io.pins.gpio19,  // RX
+        io.pins.gpio18,  // TX
+    ).expect("Failed to create async UART with config");
 
     // Run the executor with our sensor tasks
     executor.run(|spawner| {
@@ -51,8 +64,8 @@ fn main() -> ! {
 
         println!("Spawning sensor tasks...");
 
-        // Spawn ME2-CO sensor task
-        let me2co_sensor = Me2CoSensorWrapper::new();
+        // Spawn ME2-CO sensor task with async UART  
+        let me2co_sensor = Me2CoSensorWrapper::new(uart1);
         spawner.must_spawn(me2co_sensor_task(me2co_sensor));
 
         // Spawn SDS011 sensor task
