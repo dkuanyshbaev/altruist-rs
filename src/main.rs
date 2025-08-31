@@ -1,3 +1,8 @@
+//! Altruist - ESP32-C6 firmware
+//!
+//! A simple counter application demonstrating Embassy timer integration
+//! on ESP32-C6 hardware. Prints incrementing counter values via serial.
+
 #![no_std]
 #![no_main]
 
