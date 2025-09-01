@@ -102,59 +102,22 @@ impl Bme280Sensor {
         }
     }
 
-    /// Scan I2C bus to see what devices are present
-    async fn scan_i2c_bus(&mut self) -> Result<(), SensorError> {
-        esp_println::println!("[BME280] Scanning I2C bus...");
-        let mut found_devices = 0;
-        
-        for addr in 0x08..=0x77 {
-            match with_timeout(Duration::from_millis(10), self.i2c.write(addr, &[])).await {
-                Ok(Ok(())) => {
-                    esp_println::println!("[BME280] Found I2C device at 0x{:02X}", addr);
-                    found_devices += 1;
-                }
-                _ => {
-                    // No device at this address, continue scanning
-                }
-            }
-        }
-        
-        if found_devices == 0 {
-            esp_println::println!("[BME280] No I2C devices found!");
-        } else {
-            esp_println::println!("[BME280] Found {} I2C devices total", found_devices);
-        }
-        
-        Ok(())
-    }
-
     /// Try to find the BME280 at both possible I2C addresses
     async fn find_sensor(&mut self) -> Result<(), SensorError> {
-        // First scan the bus to see what's there
-        self.scan_i2c_bus().await?;
-        
         // Try primary address first
         self.address = BME280_ADDRESS_PRIMARY;
-        esp_println::println!("[BME280] Trying address 0x{:02X}", self.address);
         if let Ok(chip_id) = self.read_register(BME280_REG_CHIP_ID).await {
-            esp_println::println!("[BME280] Chip ID at 0x{:02X}: 0x{:02X} (expected: 0x{:02X})", self.address, chip_id, BME280_CHIP_ID);
             if chip_id == BME280_CHIP_ID {
                 return Ok(());
             }
-        } else {
-            esp_println::println!("[BME280] No response at 0x{:02X}", self.address);
         }
 
         // Try secondary address
         self.address = BME280_ADDRESS_SECONDARY;
-        esp_println::println!("[BME280] Trying address 0x{:02X}", self.address);
         if let Ok(chip_id) = self.read_register(BME280_REG_CHIP_ID).await {
-            esp_println::println!("[BME280] Chip ID at 0x{:02X}: 0x{:02X} (expected: 0x{:02X})", self.address, chip_id, BME280_CHIP_ID);
             if chip_id == BME280_CHIP_ID {
                 return Ok(());
             }
-        } else {
-            esp_println::println!("[BME280] No response at 0x{:02X}", self.address);
         }
 
         Err(SensorError::HardwareFailure)
@@ -181,16 +144,40 @@ impl Bme280Sensor {
         self.dig_p9 = i16::from_le_bytes([buf[22], buf[23]]);
 
         // Read humidity calibration data
+        // DIG_H1 is at 0xA1
         self.dig_h1 = self.read_register(BME280_REG_DIG_H1).await?;
         
+        // DIG_H2 to DIG_H6 are at 0xE1-0xE7
         let mut h_buf = [0u8; 7];
         self.read_registers(BME280_REG_DIG_H2, &mut h_buf).await?;
         
+        // H2 is at 0xE1-0xE2 (standard 16-bit LE)
         self.dig_h2 = i16::from_le_bytes([h_buf[0], h_buf[1]]);
+        
+        // H3 is at 0xE3 (unsigned 8-bit)
         self.dig_h3 = h_buf[2];
+        
+        // H4 is a 12-bit signed value:
+        // - MSB 8 bits at 0xE4 (h_buf[3])
+        // - LSB 4 bits at 0xE5[3:0] (lower nibble of h_buf[4])
         self.dig_h4 = ((h_buf[3] as i16) << 4) | ((h_buf[4] as i16) & 0x0F);
+        // Sign extend from 12-bit to 16-bit
+        if self.dig_h4 & 0x0800 != 0 {
+            self.dig_h4 |= 0xF000u16 as i16;  // Sign extend negative values
+        }
+        
+        // H5 is a 12-bit signed value:
+        // - LSB 4 bits at 0xE5[7:4] (upper nibble of h_buf[4])  
+        // - MSB 8 bits at 0xE6 (h_buf[5])
         self.dig_h5 = ((h_buf[5] as i16) << 4) | ((h_buf[4] as i16) >> 4);
+        // Sign extend from 12-bit to 16-bit
+        if self.dig_h5 & 0x0800 != 0 {
+            self.dig_h5 |= 0xF000u16 as i16;  // Sign extend negative values
+        }
+        
+        // H6 is at 0xE7 (signed 8-bit)
         self.dig_h6 = h_buf[6] as i8;
+
 
         Ok(())
     }
@@ -265,51 +252,41 @@ impl Bme280Sensor {
         (p as f32) / 25600.0
     }
 
-    /// Humidity compensation formula from BME280 datasheet
+    /// Humidity compensation formula from original BME280 firmware
     fn compensate_humidity(&self, adc_h: u32) -> f32 {
-        let v_x1_u32r = self.t_fine - 76800;
+        let mut v_x1_u32r = self.t_fine - 76800;
         
-        if v_x1_u32r == 0 {
-            return 0.0;
-        }
+        // First calculation: complex nested formula from original firmware
+        v_x1_u32r = (((((adc_h as i32) << 14) - ((self.dig_h4 as i32) << 20) -
+                      ((self.dig_h5 as i32) * v_x1_u32r)) + 16384) >> 15) *
+                     (((((((v_x1_u32r * (self.dig_h6 as i32)) >> 10) *
+                          (((v_x1_u32r * (self.dig_h3 as i32)) >> 11) + 32768)) >> 10) +
+                        2097152) * (self.dig_h2 as i32) + 8192) >> 14);
 
-        // Step by step calculation for better readability
-        let h_var1 = (adc_h as i32) - (((self.dig_h4 as i32) << 12) + ((self.dig_h5 as i32) * v_x1_u32r));
-        
-        let h_var2 = ((v_x1_u32r >> 15) * (v_x1_u32r >> 15)) >> 7;
-        let h_var3 = (h_var2 * (self.dig_h1 as i32)) >> 4;
-        let h_var4 = (h_var1 * (self.dig_h3 as i32)) >> 14;
-        let h_var5 = (h_var2 * (self.dig_h6 as i32)) >> 4;
-        let h_var6 = h_var4 * h_var5;
-        
-        let h_var7 = h_var1 * (h_var3 + h_var6 + 134217728) >> 10;
-        let h_var8 = h_var7 * ((self.dig_h2 as i32) + 65536) >> 13;
-        let h_var9 = h_var8 - (((((h_var8 >> 15) * (h_var8 >> 15)) >> 7) * 25) >> 9);
-        
-        let h_final = if h_var9 < 0 { 0 } else { h_var9 };
-        let h_final = if h_final > 419430400 { 419430400 } else { h_final };
+        // Second calculation: subtract term with dig_H1
+        v_x1_u32r = v_x1_u32r - (((((v_x1_u32r >> 15) * (v_x1_u32r >> 15)) >> 7) *
+                                  (self.dig_h1 as i32)) >> 4);
 
-        (h_final >> 12) as f32 / 1024.0
+        // Clamp result
+        let v_x1_u32r = if v_x1_u32r < 0 { 0 } else { v_x1_u32r };
+        let v_x1_u32r = if v_x1_u32r > 419430400 { 419430400 } else { v_x1_u32r };
+
+        (v_x1_u32r >> 12) as f32 / 1024.0
     }
 }
 
 impl Sensor for Bme280Sensor {
     async fn init(&mut self) -> Result<(), SensorError> {
-        esp_println::println!("[BME280] Initializing I2C communication...");
-        
         // Find sensor at correct I2C address
         self.find_sensor().await?;
-        esp_println::println!("[BME280] Found sensor at address 0x{:02X}", self.address);
         
         // Read calibration coefficients
         self.read_calibration().await?;
-        esp_println::println!("[BME280] Calibration data loaded");
         
         // Configure sensor
         self.configure_sensor().await?;
         
         self.initialized = true;
-        esp_println::println!("[BME280] Initialized successfully");
         Ok(())
     }
     
